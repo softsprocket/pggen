@@ -1,0 +1,60 @@
+package {{.Schema}}_test
+
+import (
+    "testing"
+    . "{{.PackageRoot}}/{{.Schema}}"
+	"pggen/pgsql"
+    "fmt"
+    "reflect"
+{{range .TestImports}}  "{{.}}"
+{{end}}
+)
+
+
+type {{.Name}}DbConnection struct {
+	PgSQL *pgsql.PgSQL
+}
+
+var {{.Name}}conn {{.Name}}DbConnection
+
+func {{.Name}}Setup(t *testing.T) {
+	fmt.Println("Running setup")
+	if {{.Name}}conn.PgSQL == nil {
+        connectionStr := "{{.ConnectionString}}"
+        pg, err := pgsql.NewPgSQL(connectionStr)
+        if err != nil {
+            t.Fatalf("\nPgSQL error during setup: %s\n", err)
+        }
+
+        {{.Name}}conn.PgSQL = pg
+	}
+}
+
+func Test{{title .Schema}}{{title .Name}}(t *testing.T) {
+    {{.Name}}Setup(t)
+
+    {{.Name}} := New{{title .Name}}({{.Name}}conn.PgSQL)
+
+    s := {{createTestStruct .Columns .Constraints}}
+
+    pk, err := {{.Name}}.Create (s)
+
+    if err != nil {
+        t.Fatalf("\nError from Create row for %s\n%s\n", "{{.Name}}", err)
+    }
+
+    returnedVal, err := {{.Name}}.Read(pk)
+    if err != nil {
+        t.Fatalf("\nError from Read row for %s\n%s\n", "{{.Name}}", err)
+    }
+
+    if !reflect.DeepEqual(returnedVal, {{.Name}}) {
+        t.Errorf("Failed equivalency for returnedVal and %s", "{{.Name}}")
+    }
+
+    err = {{.Name}}.Delete(pk)
+    if err != nil {
+        t.Fatalf("\nError from Delete row for %s\n%s\n", "{{.Name}}", err)
+    }
+
+}

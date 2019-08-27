@@ -1,0 +1,106 @@
+package {{.Schema}}
+{{if .Imports}}{{if onlyOne .Imports}}
+import "{{first .Imports}}"{{else}}
+import(
+{{range .Imports}}  "{{.}}"
+{{end}})
+{{end}}{{end}}
+
+// {{title .Name}} models the table {{.Schema}}.{{.Name}}
+type {{title .Name}} struct {
+    pgSQL *pgsql.PgSQL 
+{{range .Columns}}    {{title .Name}} {{togo .Type}}
+{{end}}}
+
+// {{title .Name}}PrimaryKey models the primary key for the table {{.Schema}}.{{.Name}}
+type {{title .Name}}PrimaryKey struct {
+{{with $tc := .}}{{range $tc.Columns -}}
+{{if isPrimaryKey . $tc.Constraints}}
+    {{title .Name}} {{togo .Type}}{{end}}{{end}}{{end}}
+}
+
+// New{{title .Name}} instantiates and returns a {{title .Name}} struct
+func New{{title .Name}}(pgSQL *pgsql.PgSQL) *{{title .Name}} {
+    s := new({{title .Name}})
+    s.pgSQL = pgSQL
+
+    return s
+}
+
+// Create inserts a {{title .Name}} record into the {{.Schema}}.{{.Name}} table
+// using the values of the interface argument as an initializer
+func ({{.Name}} *{{title .Name}}) Create(s interface{}) (*{{title .Name}}PrimaryKey, error) {
+    if err := {{.Name}}.pgSQL.Db.Ping(); err != nil {
+        return nil, err
+    }
+
+    insertStmt := fmt.Sprintf ("%s %s", pgsql.InsertClause(s, "{{.Name}}"), "{{ returnKeyClause .Columns .Constraints }}")
+
+
+    v := reflect.ValueOf(s)
+    n :=  v.NumField()
+    ifs := make([]interface{}, n)
+
+    for i := 0; i < n; i++ {
+        switch v.Field(i).Kind() {
+        case reflect.Int8, reflect.Int, reflect.Int64:
+            ifs[i] = v.Field(i).Int()
+        case reflect.Uint8, reflect.Uint, reflect.Uint64:
+            ifs[i] = v.Field(i).Uint()
+        case reflect.Float64, reflect.Float32:
+            ifs[i] = v.Field(i).Float()
+        case reflect.Bool:
+            ifs[i] = v.Field(i).Bool()
+        case reflect.String:
+            ifs[i] = v.Field(i).String()
+        case reflect.Struct:
+            ifs[i] = v.Field(i).MethodByName("Format").Call([]reflect.Value{reflect.ValueOf(time.RFC3339)})[0].String()
+        }
+    }
+
+    row := {{.Name}}.pgSQL.Db.QueryRow(insertStmt, ifs...)
+    pk := new ({{title .Name}}PrimaryKey)
+    err := row.Scan({{primaryKeyFunctionArgs .Columns .Constraints "pk" true}})
+
+    return pk, err
+}
+
+// Read selects the  {{.Schema}}.{{.Name}} row keyed by  {{title .Name}}PrimaryKey and returns a *{{title .Name}}, error tuple
+func ({{.Name}} *{{title .Name}}) Read(pk *{{title .Name}}PrimaryKey) (*{{title .Name}}, error) {
+    if err := {{.Name}}.pgSQL.Db.Ping(); err != nil {
+        return nil, err
+    }
+
+	selectStmt := "select {{range $i, $e := .Columns}}{{if $i}}, {{end}}{{.Name}}{{end}} from {{.Name}} where {{range $i, $e := .PrimaryKeyNames}}{{if $i}} and {{end}}{{$e}} = ${{inc $i}}{{end}}"
+
+    row :=	{{.Name}}.pgSQL.Db.QueryRow(selectStmt, {{range $i, $e := .PrimaryKeyNames}}{{if $i}}, {{end}}pk.{{title $e}}{{end}})
+ 
+    err := row.Scan({{with $args := .}}{{range $i, $e := $args.Columns}}{{if $i}}, {{end}}&{{$args.Name}}.{{title $e.Name}}{{end}}{{end}})	
+	
+	return {{.Name}}, err
+}
+
+// Update upates the row of the {{.Schema}}.{{.Name}} table represented by the {{title .Name}} argument
+func ({{.Name}} *{{title .Name}}) Update(s *{{title .Name}}) error {
+    if err := {{.Name}}.pgSQL.Db.Ping(); err != nil {
+        return err
+    }
+
+	updateStmt := "update {{.Name}} set {{range $i, $e := .NonPrimaryKeyNames}}{{if $i}}, {{end}}{{$e}} = ${{inc $i}}{{end}} where {{range $i, $e := .PrimaryKeyNames}}{{if $i}} and {{end}}{{$e}} = ${{inc $i}}{{end}}"
+	_, err := {{.Name}}.pgSQL.Db.Exec(updateStmt, {{range .NonPrimaryKeyNames}}s.{{title .}}, {{end}}{{range $i, $e := .PrimaryKeyNames}}{{if $i}}, {{end}}s.{{title $e}}{{end}})
+
+	return err
+}
+
+// Delete removes the {{title .Name}} row from the database
+func ({{.Name}} *{{title .Name}}) Delete(pk *{{title .Name}}PrimaryKey) error {
+    if err := {{.Name}}.pgSQL.Db.Ping(); err != nil {
+        return err
+    }
+
+
+	deleteStmt := "delete from {{.Name}}  where {{range $i, $e := .PrimaryKeyNames}}{{if $i}} and {{end}}{{$e}} = ${{inc $i}}{{end}}"
+	_, err := {{.Name}}.pgSQL.Db.Exec(deleteStmt, {{range $i, $e := .PrimaryKeyNames}}{{if $i}}, {{end}}pk.{{title $e}}{{end}})
+
+	return err
+}
